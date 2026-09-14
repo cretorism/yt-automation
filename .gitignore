@@ -1,0 +1,9 @@
+output/
+__pycache__/
+*.pyc
+.env
+*.webm
+*.mp4
+*.part
+credentials*.json
+client_secret*.json
