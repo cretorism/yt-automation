@@ -13,10 +13,11 @@ import os
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.force-ssl",
+    "https://www.googleapis.com/auth/spreadsheets",  # Google Sheets queue (no-commit mode)
 ]
 
-client_id = os.getenv("") or input("Client ID: ").strip()
-client_secret = os.getenv("") or input("Client Secret: ").strip()
+client_id = os.getenv("YT_CLIENT_ID") or input("Client ID: ").strip()
+client_secret = os.getenv("YT_CLIENT_SECRET") or input("Client Secret: ").strip()
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 

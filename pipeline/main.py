@@ -13,8 +13,18 @@ import traceback
 from . import commons, config, segment, sheet as sheetmod, upload_yt, make_short
 
 
+def _open_sheet():
+    """Google Sheets (live web sheet, no commits) when GOOGLE_SHEET_ID is set, else videos.xlsx."""
+    if config.GOOGLE_SHEET_ID:
+        from . import gsheet
+        return gsheet.GSheet()
+    return sheetmod.Sheet()
+
+
 def _git_commit_sheet():
     """Commit the updated videos.xlsx back to the repo when running inside Actions."""
+    if config.GOOGLE_SHEET_ID:
+        return  # web sheet: nothing changed inside the repo
     if os.getenv("GITHUB_ACTIONS") != "true":
         return
     subprocess.run(["git", "config", "user.email", "bot@users.noreply.github.com"], check=False)
@@ -118,7 +128,7 @@ def main():
         config.DRY_RUN = True
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
 
-    sh = sheetmod.Sheet()
+    sh = _open_sheet()
     if args.slot in ("long", "all"):
         row, _ = sh.next_pending()
         if row is not None:
@@ -140,7 +150,7 @@ def main():
 
     sh.save()
     _git_commit_sheet()
-    print("[main] sheet saved")
+    print("[main] sheet updated")
 
 
 def _handle_failure(sh: sheetmod.Sheet, row, err: Exception):

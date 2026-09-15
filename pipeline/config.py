@@ -25,6 +25,7 @@ SHORT_HARD_CAP = int(os.getenv("SHORT_HARD_CAP", "59"))  # never exceed (keeps a
 DRY_RUN       = os.getenv("DRY_RUN", "0") == "1"
 OUTPUT_DIR    = os.getenv("OUTPUT_DIR", "output")
 SHEET_PATH    = os.getenv("SHEET_PATH", "videos.xlsx")
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")  # set -> use live Google Sheet instead of videos.xlsx
 MAX_ATTEMPTS  = int(os.getenv("MAX_ATTEMPTS", "3"))
 VERIFY_TIMEOUT_MIN = int(os.getenv("VERIFY_TIMEOUT_MIN", "25"))  # poll window for YT processing
 DOWNLOAD_RETRIES   = int(os.getenv("DOWNLOAD_RETRIES", "3"))

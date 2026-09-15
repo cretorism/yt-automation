@@ -2,7 +2,7 @@
 
 This guide connects the pipeline you have to YouTube and GitHub. Do the steps
 in order. After step 7 the system runs itself forever — you only paste URLs
-into `videos.xlsx`.
+into the control sheet (a live **Google Sheet** — recommended — or `videos.xlsx`).
 
 ---
 
@@ -59,6 +59,10 @@ python get_token.py
    Advanced → Go to app) → paste the redirect URL back into Colab when asked
 4. It prints three values. Keep the page open.
 
+The token covers **YouTube upload + Google Sheets** access (the Sheets part
+powers the no-commit queue in step 4b). If you generated a token before this
+scope was added, just re-run the notebook once and update the secret.
+
 ## 4. Put the secrets into GitHub (3 min)
 
 Repo → **Settings → Secrets and variables → Actions → New repository secret**.
@@ -70,6 +74,31 @@ Add these four secrets (Names must match exactly):
 | `YT_CLIENT_ID` | from step 2/3 |
 | `YT_CLIENT_SECRET` | from step 2/3 |
 | `YT_REFRESH_TOKEN` | the long token printed in step 3 |
+
+## 4b. (Recommended) Control the queue from a Google Sheet — no commits
+
+Skip git entirely: the bot reads a live web sheet at every run and writes
+status + the green highlight straight back into it. You just paste URLs in
+your browser.
+
+1. Go to https://sheets.new (logged in as the **channel's** Google account)
+   → name it e.g. `YT Queue`
+2. Row 1 must contain these 9 headers exactly (easiest: **File → Import →
+   Upload → `sheet_template.csv`** from this folder → *Replace current sheet*):
+   ```
+   URL | Title override (optional) | Short timestamp (optional) | Status | Long video link | Short link | Verified at (UTC) | Attempts | Error / notes
+   ```
+3. Copy the **sheet ID** from its URL:
+   `https://docs.google.com/spreadsheets/d/`**`THIS_LONG_PART`**`/edit`
+4. Add it as a new GitHub secret: `GOOGLE_SHEET_ID`
+5. Paste your Commons URLs into column A, one per row. Done — no commits, ever.
+   The bot fills Status/links and green-highlights verified rows in the web sheet.
+
+Notes:
+- The sheet must live in (or be shared as **Editor** with) the same Google
+  account you generated the refresh token with.
+- Without `GOOGLE_SHEET_ID` the bot falls back to `videos.xlsx` + git commits,
+  so both modes stay available.
 
 ## 5. First test — dry run (5 min)
 
@@ -110,8 +139,10 @@ To lift that:
 
 ## 8. Daily use (the only thing you ever do)
 
-Open `videos.xlsx` → add a row with a Wikimedia Commons file URL → commit.
-That's it. The machine:
+**Google Sheet mode (step 4b):** open the web sheet → type a Wikimedia Commons
+file URL in the next empty row → walk away. Nothing to commit or sync.
+
+**videos.xlsx mode:** open `videos.xlsx` → add a row → commit.
 
 - **16:00 UTC** (12 PM New York / 21:45 Kathmandu) — downloads + uploads the long video
 - **23:00 UTC** (7 PM New York prime time / 04:45 Kathmandu) — cuts + uploads the Short,
@@ -154,6 +185,9 @@ adding a video row, keeps it alive).
 | `403 Forbidden` from Groq in Actions | key revoked/typo — make a fresh one, update the secret |
 | Upload stuck private | expected pre-audit (step 7) |
 | Row stuck on a transient status | rerun the workflow manually — stalled rows auto-resume |
+| `invalid_scope` when refreshing token | token predates Sheets scope — re-run the get_token notebook, update `YT_REFRESH_TOKEN` |
+| `PERMISSION_DENIED` / 403 on the sheet | sheet is in a different Google account — share it as **Editor** with the token's account |
+| `Google Sheet is missing columns ...` | row 1 must have the exact 9 headers (import `sheet_template.csv`) |
 | Short looks bad (subject off-center) | fill `Short timestamp` manually, or set repo variable `SHORT_STYLE`=`crop` for full-bleed center crop |
 
 ## Cost: $0/month
