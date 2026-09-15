@@ -33,7 +33,7 @@ client_config = {
 }
 
 flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
-creds = flow.run_local_server(port=0, prompt="consent")
+creds = flow.run_local_server(port=0, prompt="consent select_account")
 
 print("\n================ COPY THESE INTO GITHUB SECRETS ================")
 print(f"YT_CLIENT_ID     = {client_id}")

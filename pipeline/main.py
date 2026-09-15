@@ -8,6 +8,7 @@ Run by GitHub Actions twice a day (16:00 UTC long / 23:00 UTC short).
 import argparse
 import os
 import subprocess
+import sys
 import traceback
 
 from . import commons, config, segment, sheet as sheetmod, upload_yt, make_short
@@ -129,6 +130,7 @@ def main():
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
 
     sh = _open_sheet()
+    failed = False
     if args.slot in ("long", "all"):
         row, _ = sh.next_pending()
         if row is not None:
@@ -136,6 +138,7 @@ def main():
                 run_long_slot(sh, config.DRY_RUN)
             except Exception as e:  # noqa: BLE001
                 _handle_failure(sh, row, e)
+                failed = True
         else:
             print("[long] no pending rows")
     if args.slot in ("short", "all"):
@@ -145,12 +148,16 @@ def main():
                 run_short_slot(sh, config.DRY_RUN)
             except Exception as e:  # noqa: BLE001
                 _handle_failure(sh, row, e)
+                failed = True
         else:
             print("[short] no short_pending rows")
 
     sh.save()
     _git_commit_sheet()
     print("[main] sheet updated")
+    if failed:
+        print("[main] slot FAILED - see the row's Error column; run marked red for notification")
+        sys.exit(1)
 
 
 def _handle_failure(sh: sheetmod.Sheet, row, err: Exception):
