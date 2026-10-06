@@ -4,10 +4,13 @@ Enabled automatically when TIKTOK_CLIENT_KEY + TIKTOK_CLIENT_SECRET +
 TIKTOK_REFRESH_TOKEN are all set as secrets - otherwise every TikTok step
 is skipped and the pipeline behaves exactly as before.
 
-Audit parity with YouTube: while the TikTok developer app is unaudited, the
-API only allows SELF_ONLY (private) direct posts on a small daily quota.
-After the app passes TikTok's audit, set the repo variable
-TIKTOK_PRIVACY_STATUS=PUBLIC_TO_EVERYONE to go public automatically.
+Two modes, auto-detected from the token's granted scope on every run:
+- token has video.publish  -> direct post (publish_id + status polling)
+- token has only video.upload -> DRAFT mode: video lands in the TikTok
+  inbox of the authorized user; open the app and tap Post.
+While the app is unaudited, direct post can only be SELF_ONLY; after
+TikTok's audit, re-mint the token with video.publish and set the repo
+variable TIKTOK_PRIVACY_STATUS=PUBLIC_TO_EVERYONE to go public automatically.
 """
 import os
 import re
@@ -28,6 +31,7 @@ VERIFY_TIMEOUT_MIN = 20
 DONE_STATUSES = {"PUBLISH_COMPLETE", "SEND_TO_INBOX", "SELF_ONLY_VISIBLE"}
 
 _token_cache: dict = {}
+_scope_cache: dict = {"val": ""}   # granted scope from the last refresh
 
 
 def enabled() -> bool:
@@ -66,6 +70,7 @@ def _access_token() -> str:
     if "access_token" not in j:
         raise RuntimeError(f"TikTok token refresh failed: {j}")
     print(f"[tiktok] token OK (granted scope: {j.get('scope', 'unknown')})")
+    _scope_cache["val"] = j.get("scope", "")
     if j.get("refresh_token") and j["refresh_token"] != config.TIKTOK_REFRESH_TOKEN:
         print("[tiktok] WARNING: TikTok rotated your refresh token - update the "
               "TIKTOK_REFRESH_TOKEN GitHub secret with this value:\n"
@@ -76,23 +81,36 @@ def _access_token() -> str:
 
 
 def upload_video(path: str, caption: str) -> str:
-    """Direct-post a local video file (chunked upload). Returns the publish_id."""
+    """Chunked upload of a local video file.
+
+    Token has video.publish -> direct post (returns publish_id).
+    Token has only video.upload -> DRAFT mode: the video lands in the
+    authorized user's TikTok inbox for one-tap posting from the app;
+    returns the sentinel 'DRAFT_INBOX'. Auto-detected from the granted
+    scope, so re-minting the token with video.publish later switches
+    back to full direct post with zero code changes.
+    """
     tok = _access_token()
+    scope = _scope_cache.get("val", "")
+    if "video.publish" not in scope and "video.upload" not in scope:
+        raise RuntimeError(f"TikTok token scope has no video permission ({scope or 'unknown'} - "
+                           "re-run the token cell)")
+    draft = "video.publish" not in scope
     size = os.path.getsize(path)
     chunks = max(1, (size + CHUNK - 1) // CHUNK)
     chunk = (size + chunks - 1) // chunks   # equal chunks, last takes the remainder
-    print(f"[tiktok] direct post: {os.path.basename(path)} "
-          f"({size / 1e6:.1f} MB, {chunks} chunk(s) x {chunk / 1e6:.1f} MB, "
-          f"privacy={config.TIKTOK_PRIVACY_STATUS})")
+    print(f"[tiktok] {'draft to inbox' if draft else 'direct post'}: {os.path.basename(path)} "
+          f"({size / 1e6:.1f} MB, {chunks} chunk(s) x {chunk / 1e6:.1f} MB"
+          + ("" if draft else f", privacy={config.TIKTOK_PRIVACY_STATUS}") + ")")
 
+    post_info = {"title": caption.strip()[:CAPTION_CAP]}
+    if not draft:
+        post_info["privacy_level"] = config.TIKTOK_PRIVACY_STATUS
     init = requests.post(INIT_URL, headers={
         "Authorization": f"Bearer {tok}",
         "Content-Type": "application/json; charset=UTF-8",
     }, json={
-        "post_info": {
-            "title": caption.strip()[:CAPTION_CAP],
-            "privacy_level": config.TIKTOK_PRIVACY_STATUS,
-        },
+        "post_info": post_info,
         "source_info": {
             "source": "FILE_UPLOAD",
             "video_size": size,
@@ -106,8 +124,10 @@ def upload_video(path: str, caption: str) -> str:
     err = ij.get("error") or {}
     if err.get("code", "ok") != "ok":
         raise RuntimeError(f"TikTok init failed ({err.get('code')}): {err.get('message')}")
-    publish_id = ij["data"]["publish_id"]
-    upload_url = ij["data"]["upload_url"]
+    publish_id = (ij.get("data") or {}).get("publish_id")
+    upload_url = (ij.get("data") or {}).get("upload_url")
+    if not upload_url:
+        raise RuntimeError(f"TikTok init gave no upload_url: {ij}")
 
     mime = "video/mp4" if path.endswith(".mp4") else "video/webm"
     sent = 0
@@ -125,6 +145,10 @@ def upload_video(path: str, caption: str) -> str:
             sent += len(data)
             print(f"[tiktok] chunk {i + 1}/{chunks} done ({sent / 1e6:.0f}/{size / 1e6:.0f} MB)")
 
+    if draft or not publish_id:
+        print("[tiktok] video uploaded to the TikTok INBOX as a draft - open the")
+        print("        TikTok app to add a cover if you want, then tap Post")
+        return "DRAFT_INBOX"
     _wait_processed(tok, publish_id)
     return publish_id
 
