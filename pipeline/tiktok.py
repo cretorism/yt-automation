@@ -4,13 +4,10 @@ Enabled automatically when TIKTOK_CLIENT_KEY + TIKTOK_CLIENT_SECRET +
 TIKTOK_REFRESH_TOKEN are all set as secrets - otherwise every TikTok step
 is skipped and the pipeline behaves exactly as before.
 
-Two modes, auto-detected from the token's granted scope on every run:
-- token has video.publish  -> direct post (publish_id + status polling)
-- token has only video.upload -> DRAFT mode: video lands in the TikTok
-  inbox of the authorized user; open the app and tap Post.
-While the app is unaudited, direct post can only be SELF_ONLY; after
-TikTok's audit, re-mint the token with video.publish and set the repo
-variable TIKTOK_PRIVACY_STATUS=PUBLIC_TO_EVERYONE to go public automatically.
+Audit parity with YouTube: while the TikTok developer app is unaudited, the
+API only allows SELF_ONLY (private) direct posts on a small daily quota.
+After the app passes TikTok's audit, set the repo variable
+TIKTOK_PRIVACY_STATUS=PUBLIC_TO_EVERYONE to go public automatically.
 """
 import os
 import re
@@ -22,6 +19,7 @@ from . import config
 
 TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
 INIT_URL = "https://open.tiktokapis.com/v2/post/publish/video/init/"
+INBOX_INIT_URL = "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/"
 STATUS_URL = "https://open.tiktokapis.com/v2/post/publish/status/fetch/"
 
 CHUNK = 64 * 1024 * 1024          # API cap: one chunk <= 64 MB
@@ -103,21 +101,27 @@ def upload_video(path: str, caption: str) -> str:
           f"({size / 1e6:.1f} MB, {chunks} chunk(s) x {chunk / 1e6:.1f} MB"
           + ("" if draft else f", privacy={config.TIKTOK_PRIVACY_STATUS}") + ")")
 
-    post_info = {"title": caption.strip()[:CAPTION_CAP]}
-    if not draft:
-        post_info["privacy_level"] = config.TIKTOK_PRIVACY_STATUS
-    init = requests.post(INIT_URL, headers={
+    srcinfo = {
+        "source": "FILE_UPLOAD",
+        "video_size": size,
+        "chunk_size": chunk,
+        "total_chunk_count": chunks,
+    }
+    if draft:
+        # Drafts have a DEDICATED endpoint that takes source_info ONLY (no
+        # title, no privacy - the caption is added in the TikTok app). Sending
+        # a draft to INIT_URL (direct post) is what 403'd for unaudited apps.
+        init_url, init_body = INBOX_INIT_URL, {"source_info": srcinfo}
+    else:
+        init_url, init_body = INIT_URL, {
+            "post_info": {"title": caption.strip()[:CAPTION_CAP],
+                          "privacy_level": config.TIKTOK_PRIVACY_STATUS},
+            "source_info": srcinfo,
+        }
+    init = requests.post(init_url, headers={
         "Authorization": f"Bearer {tok}",
         "Content-Type": "application/json; charset=UTF-8",
-    }, json={
-        "post_info": post_info,
-        "source_info": {
-            "source": "FILE_UPLOAD",
-            "video_size": size,
-            "chunk_size": chunk,
-            "total_chunk_count": chunks,
-        },
-    }, timeout=60)
+    }, json=init_body, timeout=60)
     if init.status_code >= 400:
         raise RuntimeError(f"TikTok init HTTP {init.status_code}: {_api_error(init)}")
     ij = init.json()
@@ -147,7 +151,8 @@ def upload_video(path: str, caption: str) -> str:
 
     if draft or not publish_id:
         print("[tiktok] video uploaded to the TikTok INBOX as a draft - open the")
-        print("        TikTok app to add a cover if you want, then tap Post")
+        print("        TikTok app (Inbox notification), add the caption + cover,")
+        print("        then tap Post - inbox uploads cannot set a caption via API")
         return "DRAFT_INBOX"
     _wait_processed(tok, publish_id)
     return publish_id
