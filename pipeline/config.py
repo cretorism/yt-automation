@@ -30,5 +30,12 @@ MAX_ATTEMPTS  = int(os.getenv("MAX_ATTEMPTS", "3"))
 VERIFY_TIMEOUT_MIN = int(os.getenv("VERIFY_TIMEOUT_MIN", "25"))  # poll window for YT processing
 DOWNLOAD_RETRIES   = int(os.getenv("DOWNLOAD_RETRIES", "3"))
 
+# ---- TikTok cross-posting (optional - skipped unless all 3 secrets are set) ----
+TIKTOK_CLIENT_KEY     = os.getenv("TIKTOK_CLIENT_KEY", "")
+TIKTOK_CLIENT_SECRET  = os.getenv("TIKTOK_CLIENT_SECRET", "")
+TIKTOK_REFRESH_TOKEN  = os.getenv("TIKTOK_REFRESH_TOKEN", "")
+TIKTOK_PRIVACY_STATUS = os.getenv("TIKTOK_PRIVACY_STATUS", "SELF_ONLY")  # -> PUBLIC_TO_EVERYONE after audit
+TIKTOK_ENABLE_LONG    = os.getenv("TIKTOK_ENABLE_LONG", "1") == "1"       # set 0 = shorts only on TikTok
+
 # ---- License safety: only ever pull from Wikimedia upload hosts ----
 ALLOWED_DOWNLOAD_HOSTS = ("upload.wikimedia.org",)

@@ -18,7 +18,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 from . import config
-from .sheet import HEADERS, Sheet as XlsxSheet
+from .sheet import REQUIRED_HEADERS, TIKTOK_COL, Sheet as XlsxSheet
 
 LONG_RESUMABLE = XlsxSheet.LONG_RESUMABLE
 SHORT_RESUMABLE = XlsxSheet.SHORT_RESUMABLE
@@ -57,7 +57,7 @@ class GSheet:
         raw = (self.svc.spreadsheets().values()
                .get(spreadsheetId=self.sheet_id, range=f"'{self.tab}'!A1:Z5000")
                .execute() or {}).get("values", [])
-        width = max([len(HEADERS)] + [len(r) for r in raw])
+        width = max([len(r) for r in raw] + [1])   # actual sheet width, not padded
         self._grid = [list(r) + [""] * (width - len(r)) for r in raw]
         self._validate_headers()
         print(f"[gsheet] connected to '{self.tab}' ({len(self._grid) - 1} rows)")
@@ -87,11 +87,11 @@ class GSheet:
     # ---- structure ----
     def _validate_headers(self):
         row1 = [str(c).strip() for c in (self._grid[0] if self._grid else [])]
-        missing = [h for h in HEADERS if h not in row1]
+        missing = [h for h in REQUIRED_HEADERS if h not in row1]
         if missing:
             raise ValueError(
                 f"Google Sheet is missing columns {missing}. "
-                f"Row 1 must contain exactly: {HEADERS}"
+                f"Row 1 must contain exactly: {REQUIRED_HEADERS}"
             )
 
     def _c(self, header: str) -> int:
@@ -134,6 +134,11 @@ class GSheet:
     def save(self):
         """No-op: every set() is already live in the cloud sheet."""
 
+    def set_tiktok(self, row: int, value: str):
+        """Write the TikTok link if the optional column exists; silent no-op otherwise."""
+        if TIKTOK_COL in [str(c).strip() for c in self._grid[0]]:
+            self.set(row, TIKTOK_COL, value)
+
     def _fill_row(self, row: int, rgb: dict | None):
         self.svc.spreadsheets().batchUpdate(spreadsheetId=self.sheet_id, body={
             "requests": [{
@@ -141,7 +146,7 @@ class GSheet:
                     "range": {
                         "sheetId": self.tab_id,
                         "startRowIndex": row - 1, "endRowIndex": row,
-                        "startColumnIndex": 0, "endColumnIndex": len(HEADERS),
+                        "startColumnIndex": 0, "endColumnIndex": len(self._grid[0]),
                     },
                     "cell": {"userEnteredFormat": {"backgroundColor": rgb or WHITE}},
                     "fields": "userEnteredFormat.backgroundColor",

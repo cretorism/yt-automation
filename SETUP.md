@@ -152,6 +152,34 @@ Columns: `URL` (required) · `Title override` (optional) · `Short timestamp`
 (optional, e.g. `5:00-5:38` — always wins over AI picking) · everything else
 is filled by the bot.
 
+## 9. (Optional) Cross-post everything to TikTok too
+
+The bot can push the SAME long video + Short to TikTok right after each YouTube
+upload. It only activates when you add 3 secrets — otherwise it's fully off.
+
+1. Go to https://developers.tiktok.com → manage apps → **Create app**
+2. Add the product **Content Posting API**; on the app's settings add redirect
+   URI exactly: `http://localhost:1`
+3. TikTok requires a **Privacy Policy URL** on the app (any public page works,
+   e.g. a GitHub Pages site or a public gist)
+4. Get a token: run `get_tiktok_token.py` (needs `pip install requests`) or use
+   the second flow in the Colab notebook — approve with your **TikTok account**
+5. Add the secrets: `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`,
+   `TIKTOK_REFRESH_TOKEN`
+6. Done. Each run now shows `📱 posting to TikTok` in the sheet and fills the
+   **TikTok link** column (add that column to your Google Sheet: right-click
+   the last column header → *Insert 1 column right* → name it exactly
+   `TikTok link`)
+
+Notes:
+- Unaudited apps post **PRIVATE (SELF_ONLY)** with a small daily quota — same
+  pattern as YouTube's audit. After TikTok's audit approves your app, add the
+  repo **variable** `TIKTOK_PRIVACY_STATUS` = `PUBLIC_TO_EVERYONE`.
+- Don't want the long horizontal videos on TikTok? Add variable
+  `TIKTOK_ENABLE_LONG` = `0` (Shorts only).
+- TikTok failures NEVER block the YouTube upload — they're logged in the
+  Error column and the run continues.
+
 ## Status legend
 
 | Status | Meaning |
@@ -188,6 +216,9 @@ adding a video row, keeps it alive).
 | `invalid_scope` when refreshing token | token predates Sheets scope — re-run the get_token notebook, update `YT_REFRESH_TOKEN` |
 | `PERMISSION_DENIED` / 403 on the sheet | sheet is in a different Google account — share it as **Editor** with the token's account |
 | `Google Sheet is missing columns ...` | row 1 must have the exact 9 headers (import `sheet_template.csv`) |
+| TikTok: token refresh failed | token revoked/expired (365 days) — re-run `get_tiktok_token.py` |
+| TikTok: rotate warning in log | TikTok rotated the refresh token — update `TIKTOK_REFRESH_TOKEN` secret |
+| TikTok posts are private | expected pre-audit — set variable `TIKTOK_PRIVACY_STATUS` after approval |
 | Short looks bad (subject off-center) | fill `Short timestamp` manually, or set repo variable `SHORT_STYLE`=`crop` for full-bleed center crop |
 
 ## Cost: $0/month

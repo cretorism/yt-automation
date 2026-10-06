@@ -11,7 +11,7 @@ import subprocess
 import sys
 import traceback
 
-from . import commons, config, segment, sheet as sheetmod, upload_yt, make_short
+from . import commons, config, segment, sheet as sheetmod, upload_yt, make_short, tiktok
 
 
 def _open_sheet():
@@ -39,6 +39,28 @@ def _yt_link(vid: str) -> str:
     return f"https://youtube.com/watch?v={vid}"
 
 
+def _post_tiktok(sh, row: int, path: str, title: str, tags: list, restore_status: str):
+    """Cross-post to TikTok. Best-effort: never breaks the YouTube slot."""
+    if not tiktok.enabled():
+        return
+    try:
+        sh.set(row, "Status", "📱 posting to TikTok")
+        sh.save()
+        pub = tiktok.upload_video(path, tiktok.build_caption(title, tags))
+        link = tiktok.public_link(publish_id=pub)
+        sh.set_tiktok(row, link or f"TikTok publish_id: {pub}")
+        print(f"[tiktok] posted -> {link or pub}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[tiktok] skipped ({e})")
+        try:
+            sh.set(row, "Error / notes", f"TikTok: {e}"[:400])
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        sh.set(row, "Status", restore_status)
+        sh.save()
+
+
 def run_long_slot(sh: sheetmod.Sheet, dry: bool):
     row, v = sh.next_pending()
     if not row:
@@ -61,6 +83,8 @@ def run_long_slot(sh: sheetmod.Sheet, dry: bool):
     sh.set(row, "Long video link", _yt_link(vid))
     sh.set_status(row, "🟡 long uploaded - short queued")
     sh.save()
+    if config.TIKTOK_ENABLE_LONG:
+        _post_tiktok(sh, row, src, md["title"], md["tags"], "🟡 long uploaded - short queued")
     _git_commit_sheet()
     return src, meta, vid
 
@@ -116,6 +140,7 @@ def run_short_slot(sh: sheetmod.Sheet, dry: bool):
 
     sh.mark_verified(row, _yt_link(long_id) if long_id else long_link, _yt_link(s_vid))
     sh.save()
+    _post_tiktok(sh, row, short_path, s_title, md["tags"], "✅ verified")
     print(f"[short] row {row} ✅ VERIFIED (long + short processed by YouTube)")
 
 

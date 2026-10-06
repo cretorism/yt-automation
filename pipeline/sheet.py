@@ -10,8 +10,10 @@ from . import config
 HEADERS = [
     "URL", "Title override (optional)", "Short timestamp (optional)",
     "Status", "Long video link", "Short link",
-    "Verified at (UTC)", "Attempts", "Error / notes",
+    "Verified at (UTC)", "Attempts", "Error / notes", "TikTok link",
 ]
+REQUIRED_HEADERS = HEADERS[:-1]      # TikTok link column is optional for older sheets
+TIKTOK_COL = HEADERS[-1]
 
 COL = {name: i + 1 for i, name in enumerate(HEADERS)}
 
@@ -33,9 +35,10 @@ class Sheet:
 
     def _validate_headers(self):
         row1 = [c.value for c in self.ws[1]]
-        missing = [h for h in HEADERS if h not in row1]
+        self._ncols = len(row1)
+        missing = [h for h in REQUIRED_HEADERS if h not in row1]
         if missing:
-            raise ValueError(f"videos.xlsx is missing columns: {missing}. Expected first row: {HEADERS}")
+            raise ValueError(f"videos.xlsx is missing columns: {missing}. Expected first row: {REQUIRED_HEADERS}")
 
     def _url_col(self) -> int:
         return next(i for i, c in enumerate(self.ws[1], start=1) if c.value == "URL")
@@ -58,6 +61,11 @@ class Sheet:
 
     def _c(self, header: str) -> int:
         return next(i for i, c in enumerate(self.ws[1], start=1) if c.value == header)
+
+    def set_tiktok(self, row: int, value: str):
+        """Write the TikTok link if the optional column exists; silent no-op otherwise."""
+        if TIKTOK_COL in [c.value for c in self.ws[1]]:
+            self.set(row, TIKTOK_COL, value)
 
     def set(self, row: int, header: str, value):
         self.ws.cell(row=row, column=self._c(header), value=value)
@@ -106,7 +114,7 @@ class Sheet:
             self.set(row, "Short link", short_link)
         self.set(row, "Verified at (UTC)", now)
         self.set(row, "Error / notes", "")
-        for col in range(1, len(HEADERS) + 1):
+        for col in range(1, self._ncols + 1):
             cell = self.ws.cell(row=row, column=col)
             cell.fill = GREEN_FILL
             cell.font = GREEN_FONT
@@ -114,7 +122,7 @@ class Sheet:
     def mark_failed(self, row: int, error: str):
         self.set(row, "Status", "❌ failed")
         self.set(row, "Error / notes", str(error)[:500])
-        for col in range(1, len(HEADERS) + 1):
+        for col in range(1, self._ncols + 1):
             cell = self.ws.cell(row=row, column=col)
             cell.fill = RED_FILL
         self.ws.cell(row=row, column=self._c("Status")).font = RED_FONT
