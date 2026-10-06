@@ -4,10 +4,15 @@ Enabled automatically when TIKTOK_CLIENT_KEY + TIKTOK_CLIENT_SECRET +
 TIKTOK_REFRESH_TOKEN are all set as secrets - otherwise every TikTok step
 is skipped and the pipeline behaves exactly as before.
 
-Audit parity with YouTube: while the TikTok developer app is unaudited, the
-API only allows SELF_ONLY (private) direct posts on a small daily quota.
-After the app passes TikTok's audit, set the repo variable
-TIKTOK_PRIVACY_STATUS=PUBLIC_TO_EVERYONE to go public automatically.
+Routing (important): on an unaudited developer app the direct-post endpoint
+rejects every upload unless the TikTok ACCOUNT itself is private
+(unaudited_client_can_only_post_to_private_accounts) - even with
+privacy_level=SELF_ONLY. Public-channel accounts therefore use DRAFT mode by
+default: the video goes to the dedicated inbox endpoint and lands in the
+authorized user's TikTok inbox for a one-tap manual post with any privacy
+chosen in the app. Only after the app passes TikTok's audit AND the repo
+variable TIKTOK_PRIVACY_STATUS=PUBLIC_TO_EVERYONE is set does upload_video
+switch to fully automatic direct posting (requires video.publish in scope).
 """
 import os
 import re
@@ -81,19 +86,29 @@ def _access_token() -> str:
 def upload_video(path: str, caption: str) -> str:
     """Chunked upload of a local video file.
 
-    Token has video.publish -> direct post (returns publish_id).
-    Token has only video.upload -> DRAFT mode: the video lands in the
-    authorized user's TikTok inbox for one-tap posting from the app;
-    returns the sentinel 'DRAFT_INBOX'. Auto-detected from the granted
-    scope, so re-minting the token with video.publish later switches
-    back to full direct post with zero code changes.
+    Default -> DRAFT mode: the video goes to the dedicated inbox endpoint
+    and lands in the authorized user's TikTok inbox for one-tap posting
+    from the app (the caption cannot be set via API on inbox uploads);
+    returns the sentinel 'DRAFT_INBOX'. This is the only mode that works
+    for unaudited apps with a public account.
+    TIKTOK_PRIVACY_STATUS=PUBLIC_TO_EVERYONE + video.publish in scope ->
+    direct post instead (audited apps only; returns a publish_id).
     """
     tok = _access_token()
     scope = _scope_cache.get("val", "")
     if "video.publish" not in scope and "video.upload" not in scope:
         raise RuntimeError(f"TikTok token scope has no video permission ({scope or 'unknown'} - "
                            "re-run the token cell)")
-    draft = "video.publish" not in scope
+    # Route: draft-inbox by default; direct post only when explicitly opted
+    # in post-audit. (Scope-only auto-detect sent this token - which still
+    # carries video.publish from earlier consent grants - to the direct-post
+    # endpoint, where every unaudited + public-account attempt 403s.)
+    want_public = config.TIKTOK_PRIVACY_STATUS == "PUBLIC_TO_EVERYONE"
+    if want_public and "video.publish" not in scope:
+        print("[tiktok] direct post requested but token lacks video.publish "
+              "-> falling back to draft upload")
+        want_public = False
+    draft = not want_public
     size = os.path.getsize(path)
     chunks = max(1, (size + CHUNK - 1) // CHUNK)
     chunk = (size + chunks - 1) // chunks   # equal chunks, last takes the remainder
