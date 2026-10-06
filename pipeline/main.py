@@ -65,9 +65,13 @@ def _post_tiktok(sh, row: int, path: str, title: str, tags: list, restore_status
         sh.set(row, "Status", "📱 posting to TikTok")
         sh.save()
         pub = tiktok.upload_video(_mp4_for_tiktok(path), tiktok.build_caption(title, tags))
-        link = tiktok.public_link(publish_id=pub)
-        sh.set_tiktok(row, link or f"TikTok publish_id: {pub}")
-        print(f"[tiktok] posted -> {link or pub}")
+        if pub == "DRAFT_INBOX":
+            sh.set_tiktok(row, "TikTok draft in inbox - open the TikTok app to post it")
+            print("[tiktok] draft is in the TikTok inbox - open the app to review & post")
+        else:
+            link = tiktok.public_link(publish_id=pub)
+            sh.set_tiktok(row, link or f"TikTok publish_id: {pub}")
+            print(f"[tiktok] posted -> {link or pub}")
     except Exception as e:  # noqa: BLE001
         print(f"[tiktok] skipped ({e})")
         try:
