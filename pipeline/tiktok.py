@@ -40,6 +40,17 @@ def build_caption(title: str, tags: list) -> str:
     return f"{title.strip()}\n\n{tags_out}".strip()[:CAPTION_CAP]
 
 
+def _api_error(resp) -> str:
+    """TikTok's error body (code/message/log_id) - a bare HTTP code is useless for debugging."""
+    try:
+        e = (resp.json() or {}).get("error") or {}
+        if e:
+            return f"{e.get('code')}: {e.get('message')} (log_id={e.get('log_id')})"
+    except Exception:  # noqa: BLE001
+        pass
+    return resp.text[:300]
+
+
 def _access_token() -> str:
     """Refresh the user access token (valid 24h); cached for this run."""
     if _token_cache.get("exp", 0) > time.time():
@@ -54,6 +65,7 @@ def _access_token() -> str:
     j = r.json()
     if "access_token" not in j:
         raise RuntimeError(f"TikTok token refresh failed: {j}")
+    print(f"[tiktok] token OK (granted scope: {j.get('scope', 'unknown')})")
     if j.get("refresh_token") and j["refresh_token"] != config.TIKTOK_REFRESH_TOKEN:
         print("[tiktok] WARNING: TikTok rotated your refresh token - update the "
               "TIKTOK_REFRESH_TOKEN GitHub secret with this value:\n"
@@ -68,8 +80,10 @@ def upload_video(path: str, caption: str) -> str:
     tok = _access_token()
     size = os.path.getsize(path)
     chunks = max(1, (size + CHUNK - 1) // CHUNK)
+    chunk = (size + chunks - 1) // chunks   # equal chunks, last takes the remainder
     print(f"[tiktok] direct post: {os.path.basename(path)} "
-          f"({size / 1e6:.1f} MB, {chunks} chunk(s), privacy={config.TIKTOK_PRIVACY_STATUS})")
+          f"({size / 1e6:.1f} MB, {chunks} chunk(s) x {chunk / 1e6:.1f} MB, "
+          f"privacy={config.TIKTOK_PRIVACY_STATUS})")
 
     init = requests.post(INIT_URL, headers={
         "Authorization": f"Bearer {tok}",
@@ -82,11 +96,12 @@ def upload_video(path: str, caption: str) -> str:
         "source_info": {
             "source": "FILE_UPLOAD",
             "video_size": size,
-            "chunk_size": min(CHUNK, size),
+            "chunk_size": chunk,
             "total_chunk_count": chunks,
         },
     }, timeout=60)
-    init.raise_for_status()
+    if init.status_code >= 400:
+        raise RuntimeError(f"TikTok init HTTP {init.status_code}: {_api_error(init)}")
     ij = init.json()
     err = ij.get("error") or {}
     if err.get("code", "ok") != "ok":
@@ -98,13 +113,15 @@ def upload_video(path: str, caption: str) -> str:
     sent = 0
     with open(path, "rb") as f:
         for i in range(chunks):
-            data = f.read(CHUNK)
+            data = f.read(chunk)
             end = sent + len(data) - 1
             put = requests.put(upload_url, data=data, headers={
                 "Content-Type": mime,
                 "Content-Range": f"bytes {sent}-{end}/{size}",
             }, timeout=600)
-            put.raise_for_status()
+            if put.status_code >= 400:
+                raise RuntimeError(f"TikTok chunk {i + 1}/{chunks} HTTP {put.status_code}: "
+                                   f"{_api_error(put)}")
             sent += len(data)
             print(f"[tiktok] chunk {i + 1}/{chunks} done ({sent / 1e6:.0f}/{size / 1e6:.0f} MB)")
 
@@ -119,7 +136,10 @@ def _wait_processed(tok: str, publish_id: str) -> None:
             "Authorization": f"Bearer {tok}",
             "Content-Type": "application/json; charset=UTF-8",
         }, json={"publish_id": publish_id}, timeout=60)
-        r.raise_for_status()
+        if r.status_code >= 400:
+            print(f"[tiktok] status fetch HTTP {r.status_code}: {_api_error(r)}")
+            time.sleep(30)
+            continue
         data = r.json().get("data") or {}
         st = data.get("status", "unknown")
         print(f"[tiktok] status: {st}")

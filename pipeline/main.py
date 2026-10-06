@@ -39,6 +39,24 @@ def _yt_link(vid: str) -> str:
     return f"https://youtube.com/watch?v={vid}"
 
 
+def _mp4_for_tiktok(path: str) -> str:
+    """TikTok ingest needs MP4/H.264 - Commons sources are often WebM/VP9."""
+    if path.endswith(".mp4"):
+        return path
+    out = os.path.join(config.OUTPUT_DIR,
+                       "tiktok_" + os.path.splitext(os.path.basename(path))[0] + ".mp4")
+    if os.path.exists(out) and os.path.getsize(out) > 1024:
+        return out  # already converted in a previous attempt
+    print(f"[tiktok] converting {os.path.basename(path)} -> MP4/H.264 (TikTok format) ...")
+    p = subprocess.run(["ffmpeg", "-y", "-i", path,
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                        "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", out],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        raise RuntimeError(f"ffmpeg MP4 conversion failed: {p.stderr[-300:]}")
+    return out
+
+
 def _post_tiktok(sh, row: int, path: str, title: str, tags: list, restore_status: str):
     """Cross-post to TikTok. Best-effort: never breaks the YouTube slot."""
     if not tiktok.enabled():
@@ -46,7 +64,7 @@ def _post_tiktok(sh, row: int, path: str, title: str, tags: list, restore_status
     try:
         sh.set(row, "Status", "📱 posting to TikTok")
         sh.save()
-        pub = tiktok.upload_video(path, tiktok.build_caption(title, tags))
+        pub = tiktok.upload_video(_mp4_for_tiktok(path), tiktok.build_caption(title, tags))
         link = tiktok.public_link(publish_id=pub)
         sh.set_tiktok(row, link or f"TikTok publish_id: {pub}")
         print(f"[tiktok] posted -> {link or pub}")
